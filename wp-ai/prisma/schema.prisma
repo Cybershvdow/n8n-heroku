@@ -1,0 +1,190 @@
+// W&P AI Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String
+  company       String?
+  phone         String?
+  createdAt     DateTime  @default(now())
+
+  hourlyWage    Float     @default(20.00)
+  targetMargin  Float     @default(0.30)
+
+  clients       Client[]
+  walkthroughs  Walkthrough[]
+  proposals     Proposal[]
+  pricingRules  PricingRule[]
+}
+
+model Client {
+  id            String    @id @default(uuid())
+  name          String
+  contactName   String?
+  email         String?
+  phone         String?
+  address       String?
+  createdAt     DateTime  @default(now())
+
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  walkthroughs  Walkthrough[]
+  proposals     Proposal[]
+}
+
+model Walkthrough {
+  id                String    @id @default(uuid())
+  clientId          String
+  propertyAddress   String
+  totalSqft         Float?
+  facilityType      String?
+  serviceFrequency  String    @default("daily")
+  daysPerWeek       Int       @default(5)
+  status            String    @default("draft")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  userId            String
+  client            Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rooms             Room[]
+  photos            Photo[]
+  voiceNotes        VoiceNote[]
+  notes             Note[]
+  proposal          Proposal?
+}
+
+model Room {
+  id                String    @id @default(uuid())
+  walkthroughId     String
+  name              String
+  roomType          String
+  squareFeet        Float?
+  floorType         String?
+  estimatedMinutes  Int
+  specialNotes      String?
+  createdAt         DateTime  @default(now())
+
+  walkthrough       Walkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+  photos            Photo[]
+}
+
+model Photo {
+  id                String    @id @default(uuid())
+  walkthroughId     String
+  roomId            String?
+  url               String
+  caption           String?
+  createdAt         DateTime  @default(now())
+
+  walkthrough       Walkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+  room              Room?     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model VoiceNote {
+  id                String    @id @default(uuid())
+  walkthroughId     String
+  audioUrl          String
+  transcription     String?
+  duration          Int?
+  createdAt         DateTime  @default(now())
+
+  walkthrough       Walkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+}
+
+model Note {
+  id                String    @id @default(uuid())
+  walkthroughId     String
+  content           String
+  createdAt         DateTime  @default(now())
+
+  walkthrough       Walkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+}
+
+model Proposal {
+  id                String    @id @default(uuid())
+  walkthroughId     String    @unique
+  clientId          String
+  title             String
+
+  totalMonthlyHours Float
+  laborCost         Float
+  customerRate      Float
+  monthlyPrice      Float
+  profitMargin      Float
+
+  introduction      String?   @db.Text
+  scopeOfWork       String?   @db.Text
+  termsConditions   String?   @db.Text
+
+  status            String    @default("draft")
+  category          String?
+  tags              String[]
+
+  sentAt            DateTime?
+  viewedAt          DateTime?
+  viewCount         Int       @default(0)
+  downloadCount     Int       @default(0)
+  signedAt          DateTime?
+
+  publicUrl         String?   @unique
+  pdfUrl            String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  userId            String
+  walkthrough       Walkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+  client            Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  activities        ProposalActivity[]
+  aiSuggestion      AISuggestion?
+}
+
+model ProposalActivity {
+  id                String    @id @default(uuid())
+  proposalId        String
+  activityType      String
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+
+  proposal          Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+model PricingRule {
+  id                String    @id @default(uuid())
+  userId            String
+  roomType          String
+  estimatedMinutes  Int
+  description       String?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AISuggestion {
+  id                String    @id @default(uuid())
+  proposalId        String    @unique
+  suggestedRate     Float
+  confidence        Float
+  reasoning         String    @db.Text
+  similarProjects   Json?
+  userAccepted      Boolean?
+  userFeedback      String?
+  createdAt         DateTime  @default(now())
+
+  proposal          Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
