@@ -27,6 +27,9 @@ model User {
   proposalTemplates     ProposalTemplate[]
   walkthroughTemplates  WalkthroughTemplate[]
   contentTemplates      ContentTemplate[]
+  aiTrainingGuidelines  AITrainingGuideline[]
+  aiTrainingExamples    AITrainingExample[]
+  aiTrainingDocuments   AITrainingDocument[]
 }
 
 model Client {
@@ -280,6 +283,76 @@ model ContentTemplate {
   useCount          Int       @default(0)
   tags              String[]
 
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ========== AI TRAINING SYSTEM ==========
+
+model AITrainingGuideline {
+  id                String    @id @default(uuid())
+  userId            String
+  title             String
+  content           String    @db.Text
+  category          String    @default("general")
+  priority          Int       @default(5)
+  isActive          Boolean   @default(true)
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AITrainingExample {
+  id                String    @id @default(uuid())
+  userId            String
+  title             String
+  description       String?
+
+  // Example details
+  facilityType      String
+  squareFeet        Float?
+  totalRooms        Int
+  serviceFrequency  String
+  daysPerWeek       Int
+
+  // Pricing
+  employeeWage      Float
+  customerRate      Float
+  monthlyPrice      Float
+  profitMargin      Float
+
+  // Outcome
+  outcome           String    @default("unknown")
+  notes             String?   @db.Text
+
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AITrainingDocument {
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  description       String?
+  category          String    @default("reference")
+
+  // File info
+  fileUrl           String
+  fileType          String
+  fileSize          Int
+
+  // Extracted content (for AI to reference)
+  extractedText     String?   @db.Text
+  summary           String?   @db.Text
+
+  isActive          Boolean   @default(true)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { AppLayout } from '@/components/layout/app-layout'
 import { ProposalActions } from '@/components/proposals/proposal-actions'
+import { ProposalActionsWrapper } from '@/components/proposals/proposal-actions-wrapper'
 import { ChevronLeft, MapPin, Calendar, Clock, DollarSign, TrendingUp, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { formatCurrency, formatHours } from '@/lib/pricing'
@@ -48,24 +49,25 @@ export default async function ProposalPage({ params }: ProposalPageProps) {
 
   return (
     <AppLayout>
-      <div className="min-h-screen px-4 pt-6 pb-24">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <Link href="/proposals">
-            <button className="p-2 hover:bg-card rounded-lg transition-colors">
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-          </Link>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-heading font-bold">Proposal</h1>
-              <span className={`text-xs px-3 py-1 rounded-full ${statusInfo?.color} bg-current/10`}>
-                {statusInfo?.label}
-              </span>
+      <ProposalActionsWrapper proposal={proposal}>
+        <div className="min-h-screen px-4 pt-6 pb-24">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <Link href="/proposals">
+              <button className="p-2 hover:bg-card rounded-lg transition-colors">
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+            </Link>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-heading font-bold">Proposal</h1>
+                <span className={`text-xs px-3 py-1 rounded-full ${statusInfo?.color} bg-current/10`}>
+                  {statusInfo?.label}
+                </span>
+              </div>
+              <p className="text-sm text-text-secondary">{proposal.title}</p>
             </div>
-            <p className="text-sm text-text-secondary">{proposal.title}</p>
           </div>
-        </div>
 
         {/* Client Info */}
         <div className="bg-gradient-to-br from-neon-lime/10 to-accent-green/10 border border-neon-lime/30 rounded-xl p-6 mb-6">
@@ -222,9 +224,10 @@ export default async function ProposalPage({ params }: ProposalPageProps) {
           </div>
         </div>
 
-        {/* Actions */}
-        <ProposalActions proposal={proposal} />
-      </div>
+          {/* Actions */}
+          <ProposalActions proposal={proposal} />
+        </div>
+      </ProposalActionsWrapper>
     </AppLayout>
   )
 }

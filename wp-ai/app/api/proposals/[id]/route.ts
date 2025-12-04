@@ -57,7 +57,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const body = await request.json()
-    const { status, title, introduction, scopeOfWork, termsConditions } = body
+    const { status, title, introduction, scopeOfWork, termsConditions, customerRate } = body
 
     const updateData: any = {}
 
@@ -74,6 +74,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (introduction !== undefined) updateData.introduction = introduction
     if (scopeOfWork !== undefined) updateData.scopeOfWork = scopeOfWork
     if (termsConditions !== undefined) updateData.termsConditions = termsConditions
+
+    // Recalculate pricing if customerRate changed
+    if (customerRate !== undefined) {
+      const proposal = await prisma.proposal.findFirst({
+        where: { id, userId: user.id },
+      })
+
+      if (proposal) {
+        updateData.customerRate = customerRate
+        updateData.monthlyPrice = customerRate * proposal.totalMonthlyHours
+        const profit = updateData.monthlyPrice - proposal.laborCost
+        updateData.profitMargin = (profit / updateData.monthlyPrice) * 100
+      }
+    }
 
     const proposal = await prisma.proposal.update({
       where: {
