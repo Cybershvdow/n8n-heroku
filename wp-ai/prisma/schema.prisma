@@ -24,6 +24,9 @@ model User {
   walkthroughs  Walkthrough[]
   proposals     Proposal[]
   pricingRules  PricingRule[]
+  proposalTemplates     ProposalTemplate[]
+  walkthroughTemplates  WalkthroughTemplate[]
+  contentTemplates      ContentTemplate[]
 }
 
 model Client {
@@ -137,9 +140,15 @@ model Proposal {
   viewCount         Int       @default(0)
   downloadCount     Int       @default(0)
   signedAt          DateTime?
+  signatureUrl      String?
+  signerName        String?
+  signerEmail       String?
 
   publicUrl         String?   @unique
   pdfUrl            String?
+
+  templateId        String?
+  templateName      String?
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -187,4 +196,92 @@ model AISuggestion {
   createdAt         DateTime  @default(now())
 
   proposal          Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+// ========== TEMPLATES SYSTEM ==========
+
+model ProposalTemplate {
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  description       String?
+  category          String?
+
+  // Visual styling
+  layout            String    @default("standard")
+  colorScheme       String    @default("dark")
+  headerStyle       String    @default("default")
+
+  // Default content
+  introduction      String?   @db.Text
+  scopeOfWork       String?   @db.Text
+  termsConditions   String?   @db.Text
+
+  // Settings
+  isPublic          Boolean   @default(false)
+  isDefault         Boolean   @default(false)
+  useCount          Int       @default(0)
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WalkthroughTemplate {
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  description       String?
+  facilityType      String
+
+  // Default settings
+  serviceFrequency  String    @default("daily")
+  daysPerWeek       Int       @default(5)
+  totalSqft         Float?
+
+  // Template configuration
+  isPublic          Boolean   @default(false)
+  isDefault         Boolean   @default(false)
+  useCount          Int       @default(0)
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rooms             TemplateRoom[]
+}
+
+model TemplateRoom {
+  id                String    @id @default(uuid())
+  templateId        String
+  name              String
+  roomType          String
+  estimatedMinutes  Int
+  floorType         String?
+  squareFeet        Float?
+  specialNotes      String?
+  sortOrder         Int       @default(0)
+
+  createdAt         DateTime  @default(now())
+
+  template          WalkthroughTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model ContentTemplate {
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  category          String
+  content           String    @db.Text
+
+  // Metadata
+  isPublic          Boolean   @default(false)
+  useCount          Int       @default(0)
+  tags              String[]
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
