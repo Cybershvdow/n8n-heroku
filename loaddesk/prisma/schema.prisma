@@ -1,0 +1,564 @@
+// LoadDesk Database Schema
+// Production-ready SaaS for logistics load intake + decisioning
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ORGANIZATION & MULTI-TENANCY
+// =============================================================================
+
+enum OrganizationMode {
+  PERSONAL // Single driver mode
+  FLEET    // Multiple drivers mode
+}
+
+model Organization {
+  id        String           @id @default(cuid())
+  name      String
+  mode      OrganizationMode @default(PERSONAL)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  // Relations
+  users                    User[]
+  roleMemberships          RoleMembership[]
+  emailIntegrationAccounts EmailIntegrationAccount[]
+  emailMessages            EmailMessage[]
+  loads                    Load[]
+  driverProfiles           DriverProfile[]
+  trips                    Trip[]
+  notifications            Notification[]
+  auditLogs                AuditLog[]
+
+  @@map("organizations")
+}
+
+// =============================================================================
+// USERS & AUTHENTICATION
+// =============================================================================
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  name           String?
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  passwordCredential PasswordCredential?
+  roleMemberships    RoleMembership[]
+  sessions           Session[]
+  passwordResetToken PasswordResetToken[]
+  loadDecisions      LoadDecision[]
+  driverProfile      DriverProfile?
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+model PasswordCredential {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  passwordHash String   // Argon2id hash
+  algorithm    String   @default("argon2id")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_credentials")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique // Hashed session token
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique // Hashed token for security
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// =============================================================================
+// ROLES & PERMISSIONS
+// =============================================================================
+
+enum Role {
+  OWNER      // Full access
+  DISPATCHER // Accept/deny loads
+  VIEWER     // Read-only
+  DRIVER     // GPS/trips only
+}
+
+model RoleMembership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("role_memberships")
+}
+
+// =============================================================================
+// EMAIL INTEGRATION
+// =============================================================================
+
+enum EmailProviderType {
+  GMAIL
+  O365
+  IMAP_READY // Future support
+}
+
+enum EmailIntegrationStatus {
+  ACTIVE
+  DISCONNECTED
+  TOKEN_EXPIRED
+  ERROR
+}
+
+model EmailIntegrationAccount {
+  id                    String                 @id @default(cuid())
+  organizationId        String
+  providerType          EmailProviderType
+  status                EmailIntegrationStatus @default(ACTIVE)
+  emailAddress          String                 // The connected email address
+  encryptedAccessToken  String?                // Encrypted OAuth access token
+  encryptedRefreshToken String?                // Encrypted OAuth refresh token
+  tokenExpiresAt        DateTime?
+  scopes                String[]               // Granted OAuth scopes
+  lastSyncAt            DateTime?
+  lastError             String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  // Relations
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailMessages EmailMessage[]
+  outboundEmails OutboundEmail[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("email_integration_accounts")
+}
+
+// =============================================================================
+// EMAIL MESSAGES
+// =============================================================================
+
+enum EmailClassification {
+  LOAD_REQUEST
+  NOT_LOAD
+  UNCERTAIN
+}
+
+model EmailMessage {
+  id                        String              @id @default(cuid())
+  organizationId            String
+  emailIntegrationAccountId String
+  providerMessageId         String              // External message ID from Gmail/O365
+  threadId                  String?             // For reply threading
+  fromAddress               String
+  fromName                  String?
+  subject                   String
+  snippet                   String?             // Short preview
+  bodyPreview               String?             // Redacted/sanitized preview
+  receivedAt                DateTime
+  classification            EmailClassification @default(UNCERTAIN)
+  classificationConfidence  Float?              // 0.0 - 1.0
+  isProcessed               Boolean             @default(false)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  // Relations
+  organization            Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailIntegrationAccount EmailIntegrationAccount @relation(fields: [emailIntegrationAccountId], references: [id], onDelete: Cascade)
+  load                    Load?
+
+  @@unique([emailIntegrationAccountId, providerMessageId])
+  @@index([organizationId])
+  @@index([receivedAt])
+  @@index([classification])
+  @@map("email_messages")
+}
+
+// =============================================================================
+// LOADS
+// =============================================================================
+
+enum LoadStatus {
+  PENDING
+  ACCEPTED
+  DENIED
+}
+
+enum LoadSource {
+  EMAIL
+  CALL   // Future
+  MANUAL // Future
+}
+
+model Load {
+  id               String     @id @default(cuid())
+  organizationId   String
+  emailMessageId   String?    @unique
+  source           LoadSource @default(EMAIL)
+  status           LoadStatus @default(PENDING)
+
+  // Extracted fields
+  brokerCarrierName String?
+  brokerCarrierEmail String?
+  brokerCarrierPhone String?
+  pickupLocation    String?
+  pickupAddress     String?
+  pickupCity        String?
+  pickupState       String?
+  pickupZip         String?
+  pickupDateTime    DateTime?
+  dropoffLocation   String?
+  dropoffAddress    String?
+  dropoffCity       String?
+  dropoffState      String?
+  dropoffZip        String?
+  dropoffDateTime   DateTime?
+  rate              Decimal?   @db.Decimal(10, 2)
+  rateCurrency      String?    @default("USD")
+  commodity         String?
+  weight            String?
+  referenceNumber   String?
+  notes             String?
+
+  // AI extraction metadata
+  aiSummary         String?    // 3-6 bullet point summary
+  confidenceScore   Float?     // 0.0 - 1.0
+  missingFields     String[]   // List of fields that couldn't be extracted
+  extractionModel   String?    // Which AI model was used
+  extractedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  emailMessage  EmailMessage?  @relation(fields: [emailMessageId], references: [id], onDelete: SetNull)
+  decisions     LoadDecision[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("loads")
+}
+
+// =============================================================================
+// LOAD DECISIONS (Immutable audit trail)
+// =============================================================================
+
+enum DecisionType {
+  ACCEPTED
+  DENIED
+}
+
+model LoadDecision {
+  id          String       @id @default(cuid())
+  loadId      String
+  decision    DecisionType
+  decidedById String
+  reason      String?
+  createdAt   DateTime     @default(now()) // Immutable - no updatedAt
+
+  // Relations
+  load       Load          @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  decidedBy  User          @relation(fields: [decidedById], references: [id], onDelete: Cascade)
+  outboundEmail OutboundEmail?
+
+  @@index([loadId])
+  @@index([decidedById])
+  @@index([createdAt])
+  @@map("load_decisions")
+}
+
+// =============================================================================
+// OUTBOUND EMAILS (Reply tracking)
+// =============================================================================
+
+enum OutboundEmailStatus {
+  QUEUED
+  SENT
+  FAILED
+  FALLBACK_COPY // User needs to manually copy
+}
+
+model OutboundEmail {
+  id                        String              @id @default(cuid())
+  loadDecisionId            String              @unique
+  emailIntegrationAccountId String
+  providerMessageId         String?             // Message ID from send API
+  toAddress                 String
+  subject                   String
+  body                      String
+  status                    OutboundEmailStatus @default(QUEUED)
+  sentAt                    DateTime?
+  errorCode                 String?
+  errorMessage              String?
+  retryCount                Int                 @default(0)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  // Relations
+  loadDecision            LoadDecision            @relation(fields: [loadDecisionId], references: [id], onDelete: Cascade)
+  emailIntegrationAccount EmailIntegrationAccount @relation(fields: [emailIntegrationAccountId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("outbound_emails")
+}
+
+// =============================================================================
+// GPS & TRIPS
+// =============================================================================
+
+model DriverProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  organizationId   String
+  gpsConsentGiven  Boolean  @default(false)
+  gpsConsentAt     DateTime?
+  licenseNumber    String?
+  vehicleInfo      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trips        Trip[]
+
+  @@index([organizationId])
+  @@map("driver_profiles")
+}
+
+enum TripStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Trip {
+  id              String     @id @default(cuid())
+  driverProfileId String
+  organizationId  String
+  status          TripStatus @default(IN_PROGRESS)
+  startedAt       DateTime   @default(now())
+  endedAt         DateTime?
+  durationMinutes Int?
+  totalMiles      Decimal?   @db.Decimal(10, 2)
+  purpose         String?    // Trip tag/purpose
+  notes           String?
+  startLatitude   Decimal?   @db.Decimal(10, 7)
+  startLongitude  Decimal?   @db.Decimal(10, 7)
+  endLatitude     Decimal?   @db.Decimal(10, 7)
+  endLongitude    Decimal?   @db.Decimal(10, 7)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  driverProfile DriverProfile @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  routePoints   RoutePoint[]
+
+  @@index([organizationId])
+  @@index([driverProfileId])
+  @@index([startedAt])
+  @@index([status])
+  @@map("trips")
+}
+
+model RoutePoint {
+  id        String   @id @default(cuid())
+  tripId    String
+  latitude  Decimal  @db.Decimal(10, 7)
+  longitude Decimal  @db.Decimal(10, 7)
+  altitude  Decimal? @db.Decimal(10, 2)
+  speed     Decimal? @db.Decimal(6, 2) // mph
+  heading   Decimal? @db.Decimal(5, 2) // degrees
+  accuracy  Decimal? @db.Decimal(8, 2) // meters
+  timestamp DateTime @default(now())
+
+  // Relations
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([timestamp])
+  @@map("route_points")
+}
+
+// =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+enum NotificationType {
+  LOAD_CREATED
+  LOAD_MISSING_FIELDS
+  LOAD_LOW_CONFIDENCE
+  EMAIL_INTEGRATION_ERROR
+  EMAIL_DISCONNECTED
+  EMAIL_TOKEN_EXPIRED
+  REPLY_SEND_FAILED
+  EXPORT_COMPLETED
+  TRIP_ENDED
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String?          // Null = org-wide notification
+  type           NotificationType
+  title          String
+  message        String
+  data           Json?            // Additional context (loadId, etc.)
+  isRead         Boolean          @default(false)
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// =============================================================================
+// AUDIT LOGS
+// =============================================================================
+
+enum AuditAction {
+  // Auth
+  USER_REGISTERED
+  USER_LOGIN
+  USER_LOGOUT
+  USER_LOGIN_FAILED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+
+  // Loads
+  LOAD_CREATED
+  LOAD_ACCEPTED
+  LOAD_DENIED
+
+  // Email Integration
+  EMAIL_INTEGRATION_CONNECTED
+  EMAIL_INTEGRATION_DISCONNECTED
+  EMAIL_INTEGRATION_ERROR
+
+  // Replies
+  REPLY_SENT
+  REPLY_FAILED
+
+  // GPS
+  TRIP_STARTED
+  TRIP_ENDED
+  GPS_CONSENT_GRANTED
+  GPS_CONSENT_REVOKED
+
+  // Exports
+  EXPORT_LOADS
+  EXPORT_MILEAGE
+
+  // Roles
+  ROLE_ASSIGNED
+  ROLE_REMOVED
+
+  // Organization
+  ORG_MODE_CHANGED
+  ORG_SETTINGS_UPDATED
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String
+  userId         String?     // Null for system actions
+  action         AuditAction
+  resourceType   String?     // e.g., "Load", "EmailIntegration"
+  resourceId     String?     // ID of affected resource
+  metadata       Json?       // Additional context (redacted PII)
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime    @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// RATE LIMITING (Optional - can use Redis instead)
+// =============================================================================
+
+model RateLimitRecord {
+  id         String   @id @default(cuid())
+  identifier String   // IP address or user ID
+  endpoint   String   // API endpoint
+  count      Int      @default(1)
+  windowStart DateTime @default(now())
+  expiresAt  DateTime
+
+  @@unique([identifier, endpoint, windowStart])
+  @@index([expiresAt])
+  @@map("rate_limit_records")
+}
