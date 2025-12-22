@@ -1,0 +1,972 @@
+{
+  "name": "Subcontractor Lead Generator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "facility_address",
+              "value": "={{ $json.facility_address || '123 Main St, Los Angeles, CA' }}"
+            },
+            {
+              "name": "search_radius_meters",
+              "value": "={{ $json.search_radius_meters || '16093' }}"
+            },
+            {
+              "name": "business_type",
+              "value": "={{ $json.business_type || 'contractor' }}"
+            },
+            {
+              "name": "search_keyword",
+              "value": "={{ $json.search_keyword || 'plumber electrician HVAC contractor' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config",
+      "name": "Search Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 400],
+      "notesInFlow": true,
+      "notes": "Configure your search parameters here:\n- facility_address: Your facility location\n- search_radius_meters: 16093 = ~10 miles\n- business_type: Type for Google Places\n- search_keyword: Keywords to search for"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/geocode/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "address",
+              "value": "={{ $json.facility_address }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $credentials.googleApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "geocode-address",
+      "name": "Geocode Facility Address",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 400],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "google-api",
+          "name": "Google API Key"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Converts facility address to lat/lng coordinates"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "latitude",
+              "value": "={{ $json.results[0].geometry.location.lat }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.results[0].geometry.location.lng }}"
+            }
+          ]
+        },
+        "options": {
+          "includeBinary": true
+        }
+      },
+      "id": "extract-coords",
+      "name": "Extract Coordinates",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "location",
+              "value": "={{ $json.latitude }},{{ $json.longitude }}"
+            },
+            {
+              "name": "radius",
+              "value": "={{ $('Search Configuration').item.json.search_radius_meters }}"
+            },
+            {
+              "name": "keyword",
+              "value": "={{ $('Search Configuration').item.json.search_keyword }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $credentials.googleApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "places-search",
+      "name": "Google Places Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 400],
+      "notesInFlow": true,
+      "notes": "Search Google Places for businesses matching your criteria"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "id": "split-results",
+      "name": "Split Results",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1360, 400]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "place_id",
+              "value": "={{ $json.place_id }}"
+            },
+            {
+              "name": "business_name",
+              "value": "={{ $json.name }}"
+            },
+            {
+              "name": "address",
+              "value": "={{ $json.vicinity }}"
+            },
+            {
+              "name": "rating",
+              "value": "={{ $json.rating || 'N/A' }}"
+            },
+            {
+              "name": "total_ratings",
+              "value": "={{ $json.user_ratings_total || 0 }}"
+            },
+            {
+              "name": "business_status",
+              "value": "={{ $json.business_status }}"
+            },
+            {
+              "name": "types",
+              "value": "={{ $json.types ? $json.types.join(', ') : '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-business",
+      "name": "Format Business Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1580, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/details/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "place_id",
+              "value": "={{ $json.place_id }}"
+            },
+            {
+              "name": "fields",
+              "value": "formatted_phone_number,website,email,opening_hours,formatted_address"
+            },
+            {
+              "name": "key",
+              "value": "={{ $credentials.googleApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-details",
+      "name": "Get Business Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 400],
+      "notesInFlow": true,
+      "notes": "Get phone numbers, websites, and contact info"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "place_id",
+              "field2": "place_id"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-details",
+      "name": "Merge Business Details",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2020, 400]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "place_id",
+              "value": "={{ $json.place_id }}"
+            },
+            {
+              "name": "business_name",
+              "value": "={{ $json.business_name }}"
+            },
+            {
+              "name": "address",
+              "value": "={{ $json.result?.formatted_address || $json.address }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.result?.formatted_phone_number || 'Not available' }}"
+            },
+            {
+              "name": "website",
+              "value": "={{ $json.result?.website || 'Not available' }}"
+            },
+            {
+              "name": "rating",
+              "value": "={{ $json.rating }}"
+            },
+            {
+              "name": "total_ratings",
+              "value": "={{ $json.total_ratings }}"
+            },
+            {
+              "name": "business_status",
+              "value": "={{ $json.business_status }}"
+            },
+            {
+              "name": "types",
+              "value": "={{ $json.types }}"
+            },
+            {
+              "name": "found_date",
+              "value": "={{ $now.toISO() }}"
+            },
+            {
+              "name": "contacted",
+              "value": "false"
+            },
+            {
+              "name": "email_sent",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "final-format",
+      "name": "Final Lead Format",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.LEADS_SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Contacted Leads"
+        },
+        "options": {}
+      },
+      "id": "get-contacted-leads",
+      "name": "Get Contacted Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [700, 620],
+      "notesInFlow": true,
+      "notes": "Fetch already-contacted leads from Google Sheets"
+    },
+    {
+      "parameters": {
+        "operation": "removeDuplicates",
+        "compare": "selectedFields",
+        "fieldsToCompare": {
+          "fields": [
+            {
+              "fieldName": "place_id"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "remove-duplicates",
+      "name": "Remove Duplicate Leads",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 1,
+      "position": [2460, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "place_id",
+              "field2": "place_id"
+            }
+          ]
+        },
+        "joinMode": "keepNonMatches",
+        "outputDataFrom": "input1",
+        "options": {}
+      },
+      "id": "filter-contacted",
+      "name": "Filter Out Contacted",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2680, 500],
+      "notesInFlow": true,
+      "notes": "Remove leads that have already been contacted"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter-active",
+              "leftValue": "={{ $json.business_status }}",
+              "rightValue": "OPERATIONAL",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "filter-phone",
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "Not available",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-quality",
+      "name": "Filter Quality Leads",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [2900, 500],
+      "notesInFlow": true,
+      "notes": "Only keep operational businesses with phone numbers"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "total_ratings",
+              "order": "descending"
+            },
+            {
+              "fieldName": "rating",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sort-leads",
+      "name": "Sort by Quality",
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [3120, 500]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.LEADS_SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "New Leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "save-new-leads",
+      "name": "Save New Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3340, 400],
+      "notesInFlow": true,
+      "notes": "Save new leads to Google Sheets for tracking"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "summary",
+              "name": "summary",
+              "value": "={{ 'Found ' + $items().length + ' new leads ready to contact' }}",
+              "type": "string"
+            },
+            {
+              "id": "leads",
+              "name": "leads",
+              "value": "={{ $items() }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "output-summary",
+      "name": "Output Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3560, 400]
+    },
+    {
+      "parameters": {
+        "content": "## Subcontractor Lead Generator\n\n### How to Use:\n1. **Configure Search**: Update the \"Search Configuration\" node with your:\n   - Facility address (center point for search)\n   - Search radius in meters (16093m ≈ 10 miles)\n   - Business type and keywords\n\n2. **Set Up Google Sheets**: Create a spreadsheet with two sheets:\n   - \"New Leads\" - Where new leads are saved\n   - \"Contacted Leads\" - Move leads here after contacting\n\n3. **Required Credentials**:\n   - Google API Key (Places & Geocoding enabled)\n   - Google Sheets OAuth2\n\n4. **Run Daily**: The workflow runs daily to find new leads\n\n### Deduplication:\n- Leads are checked against \"Contacted Leads\" sheet\n- Already-contacted businesses are filtered out\n- Only fresh leads are returned",
+        "height": 460,
+        "width": 380,
+        "color": 4
+      },
+      "id": "sticky-instructions",
+      "name": "Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, 200]
+    },
+    {
+      "parameters": {
+        "content": "## Email Outreach Workflow\n\nConnect this section to send emails to new leads.\nAfter sending, leads are marked as contacted.",
+        "height": 160,
+        "width": 340,
+        "color": 6
+      },
+      "id": "sticky-email",
+      "name": "Email Section Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [3340, 620]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-email",
+              "leftValue": "={{ $json.send_email }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "email-trigger-check",
+      "name": "Send Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3340, 780]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "Professional Subcontractor Services Available",
+        "emailType": "text",
+        "message": "Hello {{ $json.business_name }},\n\nI hope this message finds you well. We noticed your business in our area and wanted to reach out regarding potential partnership opportunities.\n\n[Your custom message here]\n\nBest regards,\n[Your Name]\n[Your Company]",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Outreach Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [3560, 720]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.LEADS_SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Contacted Leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "mark-contacted",
+      "name": "Mark as Contacted",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3780, 720],
+      "notesInFlow": true,
+      "notes": "After email sent, add to Contacted list to prevent re-sending"
+    },
+    {
+      "parameters": {
+        "content": "## Pagination Handler\n\nGoogle Places returns max 20 results per request.\nThis section handles pagination to get more results.",
+        "height": 140,
+        "width": 300,
+        "color": 5
+      },
+      "id": "sticky-pagination",
+      "name": "Pagination Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1140, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-next-page",
+              "leftValue": "={{ $json.next_page_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-more-pages",
+      "name": "More Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1360, 180]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "wait-for-token",
+      "name": "Wait 2 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1580, 140],
+      "webhookId": "pagination-wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pagetoken",
+              "value": "={{ $json.next_page_token }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $credentials.googleApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-next-page",
+      "name": "Get Next Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 140]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Search Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Configuration": {
+      "main": [
+        [
+          {
+            "node": "Geocode Facility Address",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Contacted Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geocode Facility Address": {
+      "main": [
+        [
+          {
+            "node": "Extract Coordinates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Coordinates": {
+      "main": [
+        [
+          {
+            "node": "Google Places Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Places Search": {
+      "main": [
+        [
+          {
+            "node": "Split Results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check More Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Results": {
+      "main": [
+        [
+          {
+            "node": "Format Business Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Business Info": {
+      "main": [
+        [
+          {
+            "node": "Get Business Details",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Business Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Business Details": {
+      "main": [
+        [
+          {
+            "node": "Merge Business Details",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Business Details": {
+      "main": [
+        [
+          {
+            "node": "Final Lead Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Lead Format": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicate Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicate Leads": {
+      "main": [
+        [
+          {
+            "node": "Filter Out Contacted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Contacted Leads": {
+      "main": [
+        [
+          {
+            "node": "Filter Out Contacted",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Filter Out Contacted": {
+      "main": [
+        [
+          {
+            "node": "Filter Quality Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Quality Leads": {
+      "main": [
+        [
+          {
+            "node": "Sort by Quality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort by Quality": {
+      "main": [
+        [
+          {
+            "node": "Save New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save New Leads": {
+      "main": [
+        [
+          {
+            "node": "Output Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email?": {
+      "main": [
+        [
+          {
+            "node": "Send Outreach Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Outreach Email": {
+      "main": [
+        [
+          {
+            "node": "Mark as Contacted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check More Pages?": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Get Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Next Page": {
+      "main": [
+        [
+          {
+            "node": "Split Results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check More Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "subcontractor-lead-generator"
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": [
+    {
+      "name": "Lead Generation",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Google Maps",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Subcontractor",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
